@@ -1,5 +1,14 @@
 #include "util.hpp"
 
+#include <sstream>
+#include <iomanip>
+#include <vector>
+#include <cmath>
+#include <memory>
+
+#include <openssl/evp.h>
+#include <openssl/aes.h>
+
 std::string byte_2_hex(std::string s) {
     std::stringstream ss;
     for (int c : s) {
@@ -68,7 +77,7 @@ std::string b64_2_byte(std::string s) {
     return out;
 }
 
-float eng_score(std::vector<float> freqs) {
+float eng_score(float freqs[256]) {
     float score = 0;
     for (int i = 0; i < 256; i++) {
         float d = ENG_FREQS[i] - freqs[i];
@@ -81,7 +90,7 @@ std::pair<char, float> freq_analysis(std::string s) {
     float best_score = 100;
     char best_key = 0;
     for (int k = 0; k < 256; k++) {
-        std::vector<float> freqs(256,0);
+        float freqs[256] = {};
         float total = 0;
         
         for (unsigned char c : s){
@@ -124,3 +133,92 @@ std::string pad(std::string s, int len) {
     int pval = len - (s.size() % len);
     return s + std::string(pval,(unsigned char)pval);
 }
+
+std::string xor_same_length(std::string s1, std::string s2) {
+    std::string out;
+    for (int i = 0; i < s1.size(); i++) out += (unsigned char)s1[i] ^ (unsigned char)s2[i];
+    return out;
+}
+
+// these encryption / decryption functions are VERY UNSAFE. They don't provide any 
+// kind of block size checking, nor do they tell you if errors have occurred in 
+// the process of encryption
+
+std::string encrypt_aes_128_ecb(std::string ptext, std::string key, std::string iv) {
+    std::string ctext;
+
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+
+    EVP_EncryptInit_ex(ctx.get(), EVP_aes_128_ecb(), nullptr, reinterpret_cast<const unsigned char *>(key.data()), reinterpret_cast<const unsigned char *>(iv.data()));
+
+    EVP_CIPHER_CTX_set_padding(ctx.get(), 0);   // this is line is what makes it all work!
+
+    // Cipher text expands up to BLOCK_SIZE
+    ctext.resize(ptext.size()+BLOCK_SIZE);
+    int out_len1 = (int)ctext.size();
+
+    EVP_EncryptUpdate(ctx.get(), (unsigned char *)&ctext[0], &out_len1, (unsigned char *)&ptext[0], (int)ptext.size());
+  
+    int out_len2 = (int)ctext.size() - out_len1;
+    EVP_EncryptFinal_ex(ctx.get(), (unsigned char *)&ctext[0]+out_len1, &out_len2);
+
+    // Set cipher text size now that we know it
+    ctext.resize(out_len1 + out_len2);
+    // assert(ctext.size() == BLOCK_SIZE);
+
+    return ctext;
+}
+
+std::string decrypt_aes_128_ecb(std::string ctext, std::string key, std::string iv) {
+
+    std::string ptext;
+
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+
+    EVP_DecryptInit_ex(ctx.get(), EVP_aes_128_ecb(), nullptr, reinterpret_cast<const unsigned char *>(key.data()), reinterpret_cast<const unsigned char *>(iv.data()));
+
+    EVP_CIPHER_CTX_set_padding(ctx.get(), 0);   // this line is critical!!
+
+    ptext.resize(ctext.size()+BLOCK_SIZE);
+    int out_len1 = (int)ptext.size();
+
+    EVP_DecryptUpdate(ctx.get(), (unsigned char *)&ptext[0], &out_len1, (const unsigned char *)&ctext[0], (int)ctext.size());
+    // if (out_len1 != 16) std::cout << out_len1;
+
+    int out_len2 = (int)ptext.size() - out_len1;
+    EVP_DecryptFinal_ex(ctx.get(), (unsigned char *)&ptext[out_len1], &out_len2); //
+
+    ptext.resize(out_len1 + out_len2);
+
+    return ptext;
+}
+
+std::string encrypt_aes_128_cbc(std::string ptext, std::string key, std::string iv) {
+    std::string prev = iv;
+    std::string ctext;
+    for (int i = 0; i < ptext.size(); i+= BLOCK_SIZE) {
+        std::string c = xor_same_length(prev, ptext.substr(i, BLOCK_SIZE));
+        c = encrypt_aes_128_ecb(c, key, iv);
+        ctext += c;
+        prev = c;
+    }
+    return ctext;
+}
+
+std::string decrypt_aes_128_cbc(std::string ctext, std::string key, std::string iv) {
+    std::string ptext;
+    for (int i = 0; i < ctext.size(); i+= BLOCK_SIZE) {
+        std::string p = decrypt_aes_128_ecb(ctext.substr(i, BLOCK_SIZE), key, iv);
+        if (i >= BLOCK_SIZE) {
+            p = xor_same_length(p, ctext.substr(i-BLOCK_SIZE, BLOCK_SIZE));
+        }
+        else {
+            p = xor_same_length(p, iv);
+        }
+        ptext += p;
+    }
+    return ptext;
+}
+
+
+
