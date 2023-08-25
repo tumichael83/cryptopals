@@ -122,8 +122,5 @@ int hamming_dist(std::string s1, std::string s2) {
 std::string pad(std::string s, int len) {
     // if it's a multiple, you add an empty block
     int pval = len - (s.size() % len);
-    for (int i = pval; i > 0; i--) {
-        s += (unsigned char)pval;
-    }
-    return s;
+    return s + std::string(pval,(unsigned char)pval);
 }
