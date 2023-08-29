@@ -69,6 +69,8 @@ std::string ecb_padding_attack(std::string (*oracle)(std::string), int block_siz
     std::string out = "";
 
     std::string ctext = oracle("");
+
+    // i hope there's a better way to check this condition
     while (out.size() + block_size -1< ctext.size()) {
         std::string blk_ptext = "";
         for (int pad_len = block_size-1; pad_len >= 0; pad_len--) {
