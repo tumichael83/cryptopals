@@ -128,6 +128,7 @@ int hamming_dist(std::string s1, std::string s2) {
     return count;
 }
 
+// maybe add an unpad?
 std::string pad(std::string s, int len) {
     // if it's a multiple, you add an empty block
     int pval = len - (s.size() % len);
@@ -144,6 +145,7 @@ std::string xor_same_length(std::string s1, std::string s2) {
 // kind of block size checking, nor do they tell you if errors have occurred in 
 // the process of encryption
 
+// bruh add some padding
 std::string encrypt_aes_128_ecb(std::string ptext, std::string key, std::string iv) {
     std::string ctext;
 
